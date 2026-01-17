@@ -9,37 +9,39 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      # 1. 移除版本锁定
       - name: Remove rust-toolchain version pin
         run: rm -f rust-toolchain rust-toolchain.toml
 
-      # ---------------------------------------------------------
-      # 关键修改 1：切换到 Nightly 并安装源码
-      # 只有 Nightly 才能使用 build-std 功能现场编译标准库
-      # ---------------------------------------------------------
+      # 2. 安装 Rust Nightly 和 源码
+      # 依然需要 Nightly 和 src 来重新编译标准库
       - name: Install Rust (Nightly + Source)
         uses: dtolnay/rust-toolchain@nightly
         with:
           components: rust-src
 
-      - name: Install Cross (Fast Method)
+      # 3. 安装 Zig 语言编译器 (它将作为我们的链接器)
+      - name: Install Zig Toolchain
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.13.0
+
+      # 4. 安装 cargo-zigbuild 工具
+      - name: Install Zigbuild
+        run: cargo install cargo-zigbuild
+
+      # 5. 编译！
+      # 解释：
+      # -Z build-std=std,panic_abort: 现场编译 Rust 标准库
+      # --target mipsel-unknown-linux-musl: 目标架构
+      # 这一步 Zig 会自动合成 crt1.o 等缺失文件
+      - name: Build for MIPS (via Zigbuild)
         run: |
-          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
-          cargo binstall cross -y
+          cargo +nightly zigbuild --target mipsel-unknown-linux-musl --release \
+          -Z build-std=std,panic_abort \
+          --no-default-features --features "server client noise"
 
-      - name: Configure Static Linking
-        run: |
-          mkdir -p .cargo
-          echo '[target.mipsel-unknown-linux-musl]' >> .cargo/config.toml
-          # 这是一个优化：既然我们要自己编译标准库，不如让 panic 直接 abort，能减小体积
-          echo 'rustflags = ["-C", "target-feature=+crt-static"]' >> .cargo/config.toml
-
-      # ---------------------------------------------------------
-      # 关键修改 2：添加 -Z build-std 参数
-      # 这告诉 cross：“既然官方没给这个架构的库，那你就用 rust-src 源码现编一个 std 和 panic_abort 给我用”
-      # ---------------------------------------------------------
-      - name: Build for MIPS (With build-std)
-        run: cross build --target mipsel-unknown-linux-musl --release -Z build-std=std,panic_abort --no-default-features --features "server client noise"
-
+      # 6. 打包上传
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
