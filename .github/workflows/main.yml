@@ -9,34 +9,37 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      # 1. 删除版本锁定，强制使用最新 Rust 编译器
       - name: Remove rust-toolchain version pin
         run: rm -f rust-toolchain rust-toolchain.toml
 
-      # 2. 安装最新的稳定版 Rust
-      - name: Install Rust (Latest Stable)
-        uses: dtolnay/rust-toolchain@stable
+      # ---------------------------------------------------------
+      # 关键修改 1：切换到 Nightly 并安装源码
+      # 只有 Nightly 才能使用 build-std 功能现场编译标准库
+      # ---------------------------------------------------------
+      - name: Install Rust (Nightly + Source)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
 
-      # 3. 快速安装 cross 工具（使用二进制源，几秒钟搞定）
       - name: Install Cross (Fast Method)
         run: |
           curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
           cargo binstall cross -y
 
-      # 4. 配置静态编译参数（告诉编译器我们要生成独立运行的程序）
       - name: Configure Static Linking
         run: |
           mkdir -p .cargo
           echo '[target.mipsel-unknown-linux-musl]' >> .cargo/config.toml
+          # 这是一个优化：既然我们要自己编译标准库，不如让 panic 直接 abort，能减小体积
           echo 'rustflags = ["-C", "target-feature=+crt-static"]' >> .cargo/config.toml
 
-      # 5. 开始编译（修正了特性开关）
-      # --no-default-features: 清空默认项
-      # --features "server client noise": 只开启服务端、客户端和 noise 加密协议
-      - name: Build for MIPS (Correct Features)
-        run: cross build --target mipsel-unknown-linux-musl --release --no-default-features --features "server client noise"
+      # ---------------------------------------------------------
+      # 关键修改 2：添加 -Z build-std 参数
+      # 这告诉 cross：“既然官方没给这个架构的库，那你就用 rust-src 源码现编一个 std 和 panic_abort 给我用”
+      # ---------------------------------------------------------
+      - name: Build for MIPS (With build-std)
+        run: cross build --target mipsel-unknown-linux-musl --release -Z build-std=std,panic_abort --no-default-features --features "server client noise"
 
-      # 6. 上传结果
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
