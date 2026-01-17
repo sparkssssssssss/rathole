@@ -9,14 +9,26 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@nightly # 1. 改为 nightly，以防万一需要自编译 std
-        with:
-          components: rust-src # 2. 安装源码，如果 cross 需要现场编译标准库会用到
-          # 3. 删除了 targets: mipsel-unknown-linux-musl 这一行，解决了你的报错
+      # ---------------------------------------------------------
+      # 核心修复 1：删除强制降级文件
+      # Rathole 仓库里可能有 rust-toolchain 或 rust-toolchain.toml
+      # 我们把它删了，这样就能使用最新的 Rust 编译器
+      # ---------------------------------------------------------
+      - name: Remove rust-toolchain version pin
+        run: rm -f rust-toolchain rust-toolchain.toml
 
-      - name: Install Cross
-        run: cargo install cross
+      - name: Install Rust (Latest Stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      # ---------------------------------------------------------
+      # 核心修复 2：使用 binstall 直接下载 cross
+      # 之前的 cargo install 需要现场编译 cross，容易报错且慢
+      # 这里直接下载预编译好的二进制文件，几秒钟搞定
+      # ---------------------------------------------------------
+      - name: Install Cross (Fast Method)
+        run: |
+          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+          cargo binstall cross -y
 
       - name: Configure Static Linking
         run: |
@@ -25,7 +37,7 @@ jobs:
           echo 'rustflags = ["-C", "target-feature=+crt-static"]' >> .cargo/config.toml
 
       - name: Build for MIPS (Static & Embedded TLS)
-        # 这里的命令不需要变，cross 会自动拉取包含该环境的 Docker 镜像
+        # 这里 cross 会自动下载 Docker 镜像，无需宿主机安装 mipsel 支持
         run: cross build --target mipsel-unknown-linux-musl --release --no-default-features --features "server client embedded-tls"
 
       - name: Upload Artifact
