@@ -9,37 +9,34 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      # ---------------------------------------------------------
-      # 核心修复 1：删除强制降级文件
-      # Rathole 仓库里可能有 rust-toolchain 或 rust-toolchain.toml
-      # 我们把它删了，这样就能使用最新的 Rust 编译器
-      # ---------------------------------------------------------
+      # 1. 删除版本锁定，强制使用最新 Rust 编译器
       - name: Remove rust-toolchain version pin
         run: rm -f rust-toolchain rust-toolchain.toml
 
+      # 2. 安装最新的稳定版 Rust
       - name: Install Rust (Latest Stable)
         uses: dtolnay/rust-toolchain@stable
 
-      # ---------------------------------------------------------
-      # 核心修复 2：使用 binstall 直接下载 cross
-      # 之前的 cargo install 需要现场编译 cross，容易报错且慢
-      # 这里直接下载预编译好的二进制文件，几秒钟搞定
-      # ---------------------------------------------------------
+      # 3. 快速安装 cross 工具（使用二进制源，几秒钟搞定）
       - name: Install Cross (Fast Method)
         run: |
           curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
           cargo binstall cross -y
 
+      # 4. 配置静态编译参数（告诉编译器我们要生成独立运行的程序）
       - name: Configure Static Linking
         run: |
           mkdir -p .cargo
           echo '[target.mipsel-unknown-linux-musl]' >> .cargo/config.toml
           echo 'rustflags = ["-C", "target-feature=+crt-static"]' >> .cargo/config.toml
 
-      - name: Build for MIPS (Static & Embedded TLS)
-        # 这里 cross 会自动下载 Docker 镜像，无需宿主机安装 mipsel 支持
-        run: cross build --target mipsel-unknown-linux-musl --release --no-default-features --features "server client embedded-tls"
+      # 5. 开始编译（修正了特性开关）
+      # --no-default-features: 清空默认项
+      # --features "server client noise": 只开启服务端、客户端和 noise 加密协议
+      - name: Build for MIPS (Correct Features)
+        run: cross build --target mipsel-unknown-linux-musl --release --no-default-features --features "server client noise"
 
+      # 6. 上传结果
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
