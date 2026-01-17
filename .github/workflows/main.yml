@@ -1,7 +1,7 @@
 name: Build Static Rathole for JDC-1
 
 on:
-  workflow_dispatch:  # 允许手动点击按钮触发
+  workflow_dispatch:
 
 jobs:
   build:
@@ -10,9 +10,10 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@nightly # 1. 改为 nightly，以防万一需要自编译 std
         with:
-          targets: mipsel-unknown-linux-musl
+          components: rust-src # 2. 安装源码，如果 cross 需要现场编译标准库会用到
+          # 3. 删除了 targets: mipsel-unknown-linux-musl 这一行，解决了你的报错
 
       - name: Install Cross
         run: cargo install cross
@@ -24,9 +25,7 @@ jobs:
           echo 'rustflags = ["-C", "target-feature=+crt-static"]' >> .cargo/config.toml
 
       - name: Build for MIPS (Static & Embedded TLS)
-        # 关键参数解释：
-        # --no-default-features: 关闭默认功能（主要是为了关掉 OpenSSL）
-        # --features "server client embedded-tls": 重新开启服务端客户端，并使用纯 Rust 的 TLS 库
+        # 这里的命令不需要变，cross 会自动拉取包含该环境的 Docker 镜像
         run: cross build --target mipsel-unknown-linux-musl --release --no-default-features --features "server client embedded-tls"
 
       - name: Upload Artifact
