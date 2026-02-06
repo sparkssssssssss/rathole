@@ -1,49 +1,45 @@
-name: Build Static Rathole for JDC-1
+name: Build rathole for JD Cloud 1 (Padavan)
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # 允许你在 Actions 页面手动点击运行
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  build-mipsel:
+    name: Build for MT7621 (Padavan)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      # 1. 移除版本锁定
-      - name: Remove rust-toolchain version pin
-        run: rm -f rust-toolchain rust-toolchain.toml
-
-      # 2. 安装 Rust Nightly 和 源码
-      # 依然需要 Nightly 和 src 来重新编译标准库
-      - name: Install Rust (Nightly + Source)
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
-          components: rust-src
+          targets: mipsel-unknown-linux-musl
 
-      # 3. 安装 Zig 语言编译器 (它将作为我们的链接器)
-      - name: Install Zig Toolchain
-        uses: goto-bus-stop/setup-zig@v2
-        with:
-          version: 0.13.0
+      - name: Install Cross
+        uses: taiki-e/install-action@cross
 
-      # 4. 安装 cargo-zigbuild 工具
-      - name: Install Zigbuild
-        run: cargo install cargo-zigbuild
-
-      # 5. 编译！
-      # 解释：
-      # -Z build-std=std,panic_abort: 现场编译 Rust 标准库
-      # --target mipsel-unknown-linux-musl: 目标架构
-      # 这一步 Zig 会自动合成 crt1.o 等缺失文件
-      - name: Build for MIPS (via Zigbuild)
+      - name: Build for MIPS Little Endian (Static)
+        # 核心命令解析：
+        # --target mipsel-unknown-linux-musl: 对应 MT7621 芯片，且静态链接所有库
+        # --no-default-features: 关掉默认的 OpenSSL
+        # --features "server,client,hot-reload,noise,rustls": 重新开启功能并指定使用 rustls
         run: |
-          cargo +nightly zigbuild --target mipsel-unknown-linux-musl --release \
-          -Z build-std=std,panic_abort \
-          --no-default-features --features "server client noise"
+          cross build --target mipsel-unknown-linux-musl --release --no-default-features --features "server,client,hot-reload,noise,rustls"
 
-      # 6. 打包上传
+      - name: Prepare Artifact
+        run: |
+          cd target/mipsel-unknown-linux-musl/release/
+          # 重命名一下，方便识别
+          mv rathole rathole-mipsel-mt7621
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rathole-static-mips
-          path: target/mipsel-unknown-linux-musl/release/rathole
+          name: rathole-mipsel-mt7621
+          path: target/mipsel-unknown-linux-musl/release/rathole-mipsel-mt7621
