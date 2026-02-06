@@ -3,7 +3,7 @@ name: Build rathole for JD Cloud 1 (Padavan)
 on:
   push:
     branches: [ "main", "master" ]
-  workflow_dispatch: # 允许你在 Actions 页面手动点击运行
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -18,24 +18,23 @@ jobs:
 
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: mipsel-unknown-linux-musl
+        # 注意：这里删除了 targets: mipsel-unknown-linux-musl
+        # 因为官方源没有这个 target，我们留给 cross 在容器里处理
 
       - name: Install Cross
         uses: taiki-e/install-action@cross
 
       - name: Build for MIPS Little Endian (Static)
-        # 核心命令解析：
-        # --target mipsel-unknown-linux-musl: 对应 MT7621 芯片，且静态链接所有库
-        # --no-default-features: 关掉默认的 OpenSSL
-        # --features "server,client,hot-reload,noise,rustls": 重新开启功能并指定使用 rustls
+        # cross 会自动拉取 docker 镜像并配置环境
         run: |
           cross build --target mipsel-unknown-linux-musl --release --no-default-features --features "server,client,hot-reload,noise,rustls"
 
       - name: Prepare Artifact
         run: |
+          # 检查一下文件是否生成
+          ls -R target/
+          
           cd target/mipsel-unknown-linux-musl/release/
-          # 重命名一下，方便识别
           mv rathole rathole-mipsel-mt7621
 
       - name: Upload Artifact
