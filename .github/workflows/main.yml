@@ -10,7 +10,7 @@ env:
 
 jobs:
   build-mipsel:
-    name: Build for MT7621 (Padavan)
+    name: Build for MT7621 (Static)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -18,23 +18,25 @@ jobs:
 
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
-        # 注意：这里删除了 targets: mipsel-unknown-linux-musl
-        # 因为官方源没有这个 target，我们留给 cross 在容器里处理
+        # 不需要手动 install target，cross 会处理
 
       - name: Install Cross
         uses: taiki-e/install-action@cross
 
-      - name: Build for MIPS Little Endian (Static)
-        # cross 会自动拉取 docker 镜像并配置环境
+      - name: Build for MIPS Little Endian (Force Static)
+        # 重点在这里：
+        # RUSTFLAGS="-C target-feature=+crt-static" 强制编译器把 C 运行时库静态打包进程序
+        # -C strip=symbols 去掉符号表减小体积
         run: |
+          RUSTFLAGS="-C target-feature=+crt-static -C strip=symbols" \
           cross build --target mipsel-unknown-linux-musl --release --no-default-features --features "server,client,hot-reload,noise,rustls"
 
-      - name: Prepare Artifact
+      - name: Check binary type
+        # 这一步是为了验证，如果成功，output 应该显示 "statically linked"
         run: |
-          # 检查一下文件是否生成
-          ls -R target/
-          
           cd target/mipsel-unknown-linux-musl/release/
+          file rathole
+          # 重命名
           mv rathole rathole-mipsel-mt7621
 
       - name: Upload Artifact
