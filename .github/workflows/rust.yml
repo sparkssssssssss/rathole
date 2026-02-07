@@ -1,1 +1,69 @@
+name: Build rathole for JD Cloud 1 (Max Performance)
 
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-mipsel-optimized:
+    name: Build MIPS Optimized
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Cross
+        uses: taiki-e/install-action@cross
+
+      # ----------------------------------------------------------------
+      # 极致优化第一步：修改 Cargo.toml 强制开启最高优化等级
+      # ----------------------------------------------------------------
+      - name: Patch Cargo.toml for Max Performance
+        run: |
+          # 1. 开启 LTO (Link Time Optimization): 消除跨模块调用的开销
+          # 2. codegen-units=1: 牺牲编译速度，换取生成的机器码质量更高
+          # 3. panic=abort: 遇到错误直接退出，不通过栈展开，减少体积和开销
+          # 4. strip=true: 自动剥离符号
+          
+          cat >> Cargo.toml <<EOF
+          
+          [profile.release]
+          opt-level = 3
+          lto = true
+          codegen-units = 1
+          panic = "abort"
+          strip = true
+          EOF
+
+      - name: Build for MIPS32r2 (Static + Optimized)
+        # ----------------------------------------------------------------
+        # 极致优化第二步：针对 MT7621 芯片指令集优化
+        # ----------------------------------------------------------------
+        # -C target-cpu=mips32r2: 
+        #    MT7621 (1004Kc核心) 支持 MIPS32 Release 2 指令集。
+        #    这允许编译器使用更高效的位操作指令 (如 ext, ins, rot) 和更高效的原子操作。
+        # ----------------------------------------------------------------
+        run: |
+          RUSTFLAGS="-C target-feature=+crt-static -C target-cpu=mips32r2" \
+          cross build --target mipsel-unknown-linux-musl --release --no-default-features --features "server,client,hot-reload,noise,rustls"
+
+      - name: Check binary
+        run: |
+          cd target/mipsel-unknown-linux-musl/release/
+          # 验证文件类型
+          file rathole
+          # 重命名
+          mv rathole rathole-mipsel-mt7621-optimized
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rathole-mipsel-mt7621-optimized
+          path: target/mipsel-unknown-linux-musl/release/rathole-mipsel-mt7621-optimized
