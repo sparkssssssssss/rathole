@@ -1,4 +1,4 @@
-name: Build rathole for JD Cloud 1 (Max Performance)
+name: Build rathole for JD Cloud 1 (CPU Efficiency)
 
 on:
   push:
@@ -8,22 +8,26 @@ on:
 env:
   CARGO_TERM_COLOR: always
   # ----------------------------------------------------------------
-  # 极致优化设置 (通过环境变量覆盖 Cargo.toml，避免修改文件报错)
+  # CPU 效率优先配置
   # ----------------------------------------------------------------
-  # 1. 开启 LTO (Link Time Optimization): 消除跨模块调用开销，对 MIPS 提升巨大
+  # 1. 开启 LTO: 必开，打通函数隔阂，减少函数跳转的 CPU 开销
   CARGO_PROFILE_RELEASE_LTO: true
-  # 2. 最高优化等级
-  CARGO_PROFILE_RELEASE_OPT_LEVEL: 3
-  # 3. 牺牲编译速度换取更好的机器码质量
+  
+  # 2. 核心改动：使用 Level 2
+  #    Level 3 = 激进优化，代码膨胀，导致 MT7621 缓存溢出，性能反而下降
+  #    Level 2 = 速度与体积的黄金平衡点，最适合嵌入式 CPU
+  CARGO_PROFILE_RELEASE_OPT_LEVEL: 2
+  
+  # 3. 这里的 1 依然保留，确保编译器能看到全局视图进行优化
   CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 1
-  # 4. 遇到错误直接退出，移除堆栈回溯，大幅减小体积
+  
+  # 4. 依然去掉 Panic，为了减少无用的分支预测，降低 CPU 负担
   CARGO_PROFILE_RELEASE_PANIC: abort
-  # 5. 自动剥离符号表
   CARGO_PROFILE_RELEASE_STRIP: true
 
 jobs:
-  build-mipsel-optimized:
-    name: Build MIPS Optimized
+  build-mipsel-cpu-efficient:
+    name: Build MIPS CPU Efficient
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -35,27 +39,27 @@ jobs:
       - name: Install Cross
         uses: taiki-e/install-action@cross
 
-      - name: Build for MIPS32r2 (Static + Optimized)
+      - name: Build for MT7621 (1004Kc Optimized)
         # ----------------------------------------------------------------
-        # 针对 MT7621 芯片指令集优化
+        # 针对 MT7621 的核心微架构优化
         # ----------------------------------------------------------------
-        # -C target-feature=+crt-static: 强制静态链接 musl 库
-        # -C target-cpu=mips32r2: 开启硬件位移指令优化 (MT7621 支持)
+        # -C target-cpu=1004kc: 
+        #    MT7621 的核心就是 1004Kc。这比 mips32r2 更精准。
+        #    它会让编译器优化指令发射顺序，填满 CPU 的执行流水线，
+        #    从而直接降低 CPU 等待时间（即降低 CPU 使用率）。
         # ----------------------------------------------------------------
         run: |
-          RUSTFLAGS="-C target-feature=+crt-static -C target-cpu=mips32r2" \
+          RUSTFLAGS="-C target-feature=+crt-static -C target-cpu=1004kc" \
           cross build --target mipsel-unknown-linux-musl --release --no-default-features --features "server,client,hot-reload,noise,rustls"
 
       - name: Check binary
         run: |
           cd target/mipsel-unknown-linux-musl/release/
-          # 验证文件类型，预期结果应包含 "statically linked"
-          file rathole
-          # 重命名
-          mv rathole rathole-mipsel-mt7621-optimized
+          ls -lh rathole
+          mv rathole rathole-mipsel-mt7621-efficient
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rathole-mipsel-mt7621-optimized
-          path: target/mipsel-unknown-linux-musl/release/rathole-mipsel-mt7621-optimized
+          name: rathole-mipsel-mt7621-efficient
+          path: target/mipsel-unknown-linux-musl/release/rathole-mipsel-mt7621-efficient
